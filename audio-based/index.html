@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Buttplug.io Control</title>
+
+    <!-- Primary Meta Tags -->
+    <meta name="title" content="🎧 Vibrador Sonoro" />
+    <meta name="description" content="Maneja tu vibrador con sonido" />
+    <meta name="theme-color" content="#0b0f14" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://vibrar.labsensacional.com/" />
+    <meta property="og:title" content="🎧 Vibrador Sonoro" />
+    <meta property="og:description" content="Maneja tu vibrador con sonido" />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://vibrar.labsensacional.com/" />
+    <meta property="twitter:title" content="🎧 Vibrador Sonoro" />
+    <meta property="twitter:description" content="Maneja tu vibrador con sonido" />
+
+
+  <style>
+    :root {
+      --bg: #0b0f14; --panel: #121820; --ink: #e8f0ff; --sub: #94a3b8;
+      --accent: #7dd3fc; --inactive: #334155; --active: #22c55e; --border: #1f2937;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui; -webkit-tap-highlight-color: transparent; }
+
+    header {
+      position: sticky; top: 0; z-index: 10; padding: 12px 16px;
+      display:flex; flex-wrap: wrap; gap: 10px 12px; align-items:center;
+      background: rgba(11,15,20,0.8); backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--border);
+    }
+    h1 { margin: 0; font-size: 1rem; font-weight: 700; letter-spacing: .2px; }
+    .spacer { flex: 1 1 auto; }
+    .btn { appearance: none; border: 0; padding: .6rem .9rem; border-radius: .75rem; font-weight: 700; cursor: pointer; background: var(--accent); color: #0b1220; }
+    .btn.secondary { background: #334155; color: #dbeafe; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+
+    .wsbox { display:flex; flex-wrap: wrap; gap:8px; align-items:center; }
+    .wsbox label { font-size:.84rem; color:#cbd5e1; }
+    .ip, .port { background:#0f172a; color:#e5e7eb; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; width: 150px; }
+    .port { width: 90px; }
+
+    main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+
+    .status { margin-top: 6px; color: var(--sub); font-size: .86rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; background: #64748b; display:inline-block; }
+    .dot.ok { background: #22c55e; } .dot.warn { background: #f59e0b; } .dot.err { background: #ef4444; }
+
+    .bands { display: grid; gap: 12px; }
+    .band-row {
+      display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: center;
+      padding: 12px; border-radius: 12px; background: #0f141c; border: 1px solid #1e293b;
+    }
+    .band-name { font-weight: 800; color: #cbd5e1; font-size: .95rem; }
+    .sliders { display: grid; gap: 10px; }
+    .group { display: grid; grid-template-columns: 130px 1fr 62px; gap: 10px; align-items: center; }
+    .group label { color: #cbd5e1; font-size: .84rem; white-space: nowrap; }
+    input[type="range"] { width: 100%; touch-action: pan-y; }
+    .value { font-variant-numeric: tabular-nums; text-align: right; color: #d1d5db; font-size: .82rem; }
+    .control-row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; align-items: center; }
+    .control-row .controls { display: flex; gap: 10px; flex-wrap: wrap; }
+    .controls .chk { display:flex; gap:8px; align-items:center; font-size:.85rem; color:#cbd5e1; }
+    select { background:#0f172a; color:#e5e7eb; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; }
+
+    .meters { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 14px; }
+    .meter { height: 140px; background: #0b1220; border: 1px solid #1e293b; border-radius: 10px; position: relative; overflow: hidden; }
+    .meter .label { position: absolute; top: 6px; left: 6px; font-size: .75rem; color: #93c5fd; background: rgba(13,23,33,.5); padding: 2px 6px; border-radius: 6px; border:1px solid #1e293b; }
+    .bar { position: absolute; bottom: 0; left: 0; right: 0; height: 8%; background: var(--inactive); transition: background-color .12s ease, height .06s linear; }
+
+    @media (max-width: 860px) { .band-row { grid-template-columns: 1fr; } .meters { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 520px) { .group { grid-template-columns: 1fr; } .control-row { grid-template-columns: 1fr; } .meters { grid-template-columns: repeat(2, 1fr); } .meter { height: 120px; } }
+  </style>
+
+  <!-- UMD build exposes global `buttplug` -->
+  <script src="https://cdn.jsdelivr.net/npm/buttplug@3.2.2/dist/web/buttplug.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🎧 Vibrador Sonoro</h1>
+    <div class="spacer"></div>
+
+    <div class="wsbox">
+      <label for="wsIp">IP</label>
+      <input id="wsIp" class="ip" type="text" value="b1715e7a279f.ngrok-free.app" />
+      <label for="wsPort">Port</label>
+      <input id="wsPort" class="port" type="text" value="443" inputmode="numeric" pattern="[0-9]*" />
+    </div>
+
+    <button id="btn" class="btn">Start microphone</button>
+    <button id="stop" class="btn secondary" disabled>Stop</button>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div class="status">
+        <span><span id="micDot" class="dot"></span> Mic: <span id="micStatus">idle</span></span>
+        <span><span id="bpDot" class="dot"></span> Intiface: <span id="bpStatus">disconnected</span></span>
+        <span id="devStatus"></span>
+        <span id="wsStatus" style="margin-left:auto;"></span>
+      </div>
+
+      <div class="bands" id="bands"></div>
+      <div class="meters" id="meters"></div>
+    </section>
+  </main>
+
+  <script>
+  // ---------- Configuration ----------
+  const BANDS = [
+    { name: 'Sub-bass',    lo: 20,   hi: 60 },
+    { name: 'Bass',        lo: 60,   hi: 250 },
+    { name: 'Low-mid',     lo: 250,  hi: 500 },
+    { name: 'Mid',         lo: 500,  hi: 2000 },
+    { name: 'Upper-mid',   lo: 2000, hi: 4000 },
+    { name: 'Presence/Air',lo: 4000, hi: 20000 }
+  ];
+  const DEFAULTS = {
+    minThreshold: [20,20,20,20,20,20],
+    risePct:      [60,60,55,50,45,40],
+    smoothing: 0.8,
+    fftSize: 2048
+  };
+
+  // ---------- State ----------
+  let audioCtx, analyser, source, micStream, freqData, freqBins, sr = 0;
+  let prevEMA = new Array(BANDS.length).fill(1);
+  let running = false;
+  let bandControls = [];
+
+  // Buttplug state
+  let bpClient = null, device = null;
+  let wsUrl = ""; // filled from inputs at start()
+
+  // UI refs
+  const micDot = document.getElementById('micDot');
+  const micStatus = document.getElementById('micStatus');
+  const bpDot = document.getElementById('bpDot');
+  const bpStatus = document.getElementById('bpStatus');
+  const devStatus = document.getElementById('devStatus');
+  const wsStatus = document.getElementById('wsStatus');
+
+  function setMicStatus(text, cls='') {
+    micStatus.textContent = text;
+    micDot.className = 'dot ' + cls;
+  }
+  function setBpStatus(text, cls='') {
+    bpStatus.textContent = text;
+    bpDot.className = 'dot ' + cls;
+  }
+  function setDevStatus(text) { devStatus.textContent = text; }
+  function setWsStatus() { wsStatus.textContent = wsUrl ? `WS: ${wsUrl}` : ''; }
+
+  function getWsUrlFromInputs() {
+    const ip = (document.getElementById('wsIp').value || '').trim();
+    const port = (document.getElementById('wsPort').value || '').trim();
+    return (ip && port) ? `wss://${ip}:${port}` : '';
+  }
+
+  // ---------- UI Build ----------
+  function createUI() {
+    const bandsEl = document.getElementById('bands');
+    const metersEl = document.getElementById('meters');
+    bandsEl.innerHTML = '';
+    metersEl.innerHTML = '';
+    bandControls = [];
+
+    BANDS.forEach((b, i) => {
+      const row = document.createElement('div'); row.className = 'band-row';
+
+      const name = document.createElement('div');
+      name.className = 'band-name';
+      name.textContent = `${b.name} ${b.lo}–${b.hi} Hz`;
+      row.appendChild(name);
+
+      const sliders = document.createElement('div'); sliders.className = 'sliders';
+
+      const g1 = document.createElement('div'); g1.className = 'group';
+      const l1 = document.createElement('label'); l1.textContent = 'Min Threshold';
+      const thr = document.createElement('input'); thr.type='range'; thr.min=0; thr.max=100; thr.value=DEFAULTS.minThreshold[i];
+      const thrVal = document.createElement('div'); thrVal.className = 'value'; thrVal.textContent = thr.value + '%';
+      thr.oninput = () => thrVal.textContent = thr.value + '%';
+      g1.append(l1, thr, thrVal);
+
+      const g2 = document.createElement('div'); g2.className = 'group';
+      const l2 = document.createElement('label'); l2.textContent = 'Rise % vs baseline';
+      const rise = document.createElement('input'); rise.type='range'; rise.min=0; rise.max=200; rise.value=DEFAULTS.risePct[i];
+      const riseVal = document.createElement('div'); riseVal.className = 'value'; riseVal.textContent = rise.value + '%';
+      rise.oninput = () => riseVal.textContent = rise.value + '%';
+      g2.append(l2, rise, riseVal);
+
+      const g3 = document.createElement('div'); g3.className = 'control-row';
+      const l3 = document.createElement('label'); l3.textContent = 'Action';
+      const ctrlWrap = document.createElement('div'); ctrlWrap.className = 'controls';
+      const chkWrap = document.createElement('label'); chkWrap.className = 'chk';
+      const chk = document.createElement('input'); chk.type = 'checkbox'; chk.checked = false; // start UNchecked
+      const chkTxt = document.createElement('span'); chkTxt.textContent = 'Enable';
+      chkWrap.append(chk, chkTxt);
+      const sel = document.createElement('select');
+      // Default selection: short accel
+      ["turn off","short accel","random speed"].forEach(v => {
+        const o = document.createElement('option'); o.value = v; o.textContent = v;
+        if (v === "short accel") o.selected = true;
+        sel.appendChild(o);
+      });
+      ctrlWrap.append(chkWrap, sel);
+      g3.append(l3, ctrlWrap);
+
+      sliders.append(g1, g2, g3);
+      row.appendChild(sliders);
+      bandsEl.appendChild(row);
+
+      // Meter
+      const meter = document.createElement('div'); meter.className = 'meter';
+      const label = document.createElement('div'); label.className = 'label'; label.textContent = b.name;
+      const bar = document.createElement('div'); bar.className = 'bar';
+      meter.append(label, bar);
+      metersEl.appendChild(meter);
+
+      bandControls.push({ thr, rise, chk, sel, bar });
+    });
+  }
+
+  // ---------- Audio / Analysis ----------
+  function hzToBin(hz) {
+    const nyq = sr / 2;
+    return Math.round((hz / nyq) * (analyser.frequencyBinCount - 1));
+  }
+  function computeBandIndices() {
+    return BANDS.map(b => ({ i0: hzToBin(b.lo), i1: hzToBin(b.hi) }));
+  }
+
+  // ---------- Buttplug / Intiface ----------
+  async function initButtplug() {
+    if (!wsUrl) { setBpStatus('no WS url', 'err'); return; }
+    try {
+      setBpStatus('connecting…', 'warn');
+      const connector = new buttplug.ButtplugBrowserWebsocketClientConnector(wsUrl);
+      bpClient = new buttplug.ButtplugClient('Mic Analyzer Client');
+      await bpClient.connect(connector);
+      setBpStatus('connected', 'ok');
+
+      bpClient.addListener('deviceadded', (dev) => {
+        if (!device && typeof dev.vibrate === 'function') {
+          device = dev;
+          setDevStatus('Device: ' + dev.name);
+        }
+      });
+      bpClient.addListener('deviceremoved', (dev) => {
+        if (device && dev.index === device.index) {
+          device = null;
+          setDevStatus('Device removed');
+        }
+      });
+
+      await bpClient.startScanning();
+      const until = performance.now() + 6000;
+      while (!device && performance.now() < until) {
+        const d = (bpClient.devices || []).find(x => typeof x.vibrate === 'function');
+        if (d) { device = d; setDevStatus('Device: ' + d.name); break; }
+        await new Promise(r => setTimeout(r, 120));
+      }
+      setTimeout(() => bpClient?.stopScanning().catch(()=>{}), 8000);
+    } catch (e) {
+      console.error(e);
+      setBpStatus('failed', 'err');
+    }
+  }
+
+  function getVibe() {
+    return device || ((bpClient?.devices || []).find(d => typeof d.vibrate === 'function'));
+  }
+  async function vibrateTo(speed) {
+    const d = getVibe();
+    if (!d) return;
+    const s = Math.max(0, Math.min(1, speed));
+    await d.vibrate(s);
+  }
+
+  async function applyEffect(effect){
+    if (effect === 'turn off') {
+      await vibrateTo(0);
+    } else if (effect === 'short accel') {
+      await vibrateTo(1);
+      setTimeout(() => vibrateTo(0.2).catch(()=>{}), 300);
+    } else if (effect === 'random speed') {
+      await vibrateTo(Math.random());
+    }
+  }
+
+  // ---------- Start/Stop ----------
+  async function start() {
+    if (running) return;
+
+    // Read IP/Port and form WS URL
+    wsUrl = getWsUrlFromInputs();
+    setWsStatus();
+
+    createUI();
+    document.getElementById('btn').disabled = true;
+    document.getElementById('stop').disabled = false;
+
+    await initButtplug();
+
+    try {
+      setMicStatus('granting access…', 'warn');
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicStatus('listening', 'ok');
+    } catch (e) {
+      console.error(e);
+      setMicStatus('denied', 'err');
+      document.getElementById('btn').disabled = false;
+      document.getElementById('stop').disabled = true;
+      return;
+    }
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    sr = audioCtx.sampleRate;
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = DEFAULTS.fftSize;
+    analyser.smoothingTimeConstant = 0;
+    source = audioCtx.createMediaStreamSource(micStream);
+    source.connect(analyser);
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+    freqBins = computeBandIndices();
+
+    // Optional gentle base vibration
+    try { await vibrateTo(0.2); } catch (e) {}
+
+    running = true;
+    prevEMA = new Array(BANDS.length).fill(1);
+    requestAnimationFrame(loop);
+  }
+
+  function stop() {
+    running = false;
+    document.getElementById('btn').disabled = false;
+    document.getElementById('stop').disabled = true;
+
+    if (source) { try { source.disconnect(); } catch {} }
+    if (analyser) { try { analyser.disconnect(); } catch {} }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); }
+    if (audioCtx) { try { audioCtx.close(); } catch {} }
+
+    vibrateTo(0).catch(()=>{});
+    setMicStatus('stopped', '');
+  }
+
+  document.getElementById('btn').addEventListener('click', start);
+  document.getElementById('stop').addEventListener('click', stop);
+
+  // ---------- Main loop ----------
+  function loop() {
+    if (!running) return;
+    analyser.getByteFrequencyData(freqData);
+
+    const levels = BANDS.map((_, bi) => {
+      const { i0, i1 } = freqBins[bi];
+      let sum = 0; for (let i = i0; i <= i1; i++) sum += freqData[i];
+      return sum / Math.max(1, (i1 - i0 + 1)); // 0..255
+    });
+
+    levels.forEach((v, bi) => {
+      prevEMA[bi] = DEFAULTS.smoothing * prevEMA[bi] + (1 - DEFAULTS.smoothing) * (v + 1e-3);
+      const thrAbs = (bandControls[bi].thr.value / 100) * 255;
+      const risePct = (bandControls[bi].rise.value / 100);
+      const target = Math.max(thrAbs, prevEMA[bi] * (1 + risePct));
+      const activated = v >= target;
+
+      bandControls[bi].bar.style.height = Math.max(2, (v / 255) * 100) + '%';
+      bandControls[bi].bar.style.background = activated ? 'var(--active)' : 'var(--inactive)';
+
+      if (activated && bandControls[bi].chk.checked) {
+        applyEffect(bandControls[bi].sel.value);
+      }
+    });
+
+    requestAnimationFrame(loop);
+  }
+  </script>
+</body>
+</html>

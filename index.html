@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dino Vibe Runner — with Intiface connect</title>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #121820; --ink: #e8f0ff; --sub: #94a3b8;
+    --accent: #7dd3fc; --inactive: #334155; --active: #22c55e; --border: #1f2937;
+  }
+  * { box-sizing: border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+  header {
+    position: sticky; top: 0; z-index: 10; padding: 12px 16px;
+    display:flex; flex-wrap: wrap; gap: 10px 12px; align-items:center;
+    background: rgba(11,15,20,0.9); backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+  }
+  h1 { margin: 0; font-size: 1rem; font-weight: 800; letter-spacing: .2px; }
+  .spacer { flex: 1 1 auto; }
+  .btn { appearance:none; border:0; padding:.6rem .9rem; border-radius:.75rem; font-weight:700; cursor:pointer; background:var(--accent); color:#0b1220; }
+  .btn.secondary { background:#334155; color:#dbeafe; }
+  .btn:disabled { opacity:.6; cursor:not-allowed; }
+  .wsbox { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .wsbox label { font-size:.84rem; color:#cbd5e1; }
+  .ip, .port { background:#0f172a; color:#e5e7eb; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; width: 160px; }
+  .port { width: 90px; }
+
+  main { padding: 16px; max-width: 980px; margin: 0 auto; display:grid; gap:14px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+  .hud { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .badge { padding:4px 8px; background:#0f141c; border:1px solid #1e293b; border-radius:12px; font-size:12px; color:#d1d5db; }
+  .status { margin-top: 6px; color: var(--sub); font-size: .86rem; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .dot { width: 10px; height: 10px; border-radius: 999px; background: #64748b; display:inline-block; }
+  .dot.ok { background: #22c55e; } .dot.warn { background:#f59e0b; } .dot.err { background:#ef4444; }
+
+  canvas { background:#0b1220; border:1px solid #1e293b; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.25); image-rendering: pixelated; width: 100%; height: auto; }
+</style>
+<!-- Buttplug.io UMD -->
+<script src="https://cdn.jsdelivr.net/npm/buttplug@3.2.2/dist/web/buttplug.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🦖 Dino Vibe Runner</h1>
+    <div class="spacer"></div>
+    <div class="wsbox">
+      <label for="wsIp">IP</label>
+      <input id="wsIp" class="ip" type="text" value="b1715e7a279f.ngrok-free.app" />
+      <label for="wsPort">Port</label>
+      <input id="wsPort" class="port" type="text" value="443" inputmode="numeric" pattern="[0-9]*" />
+    </div>
+    <button id="connect" class="btn">Connect Intiface</button>
+    <button id="disconnect" class="btn secondary" disabled>Disconnect</button>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div class="status">
+        <span><span id="micDot" class="dot"></span> Mic: <span id="micStatus">idle</span></span>
+        <span><span id="bpDot" class="dot"></span> Intiface: <span id="bpStatus">disconnected</span></span>
+        <span id="devStatus"></span>
+        <span id="wsStatus" style="margin-left:auto;"></span>
+      </div>
+      <div class="hud" style="margin-top:10px;">
+        <div id="score" class="badge">Score: 0</div>
+        <div id="best" class="badge">Best: 0</div>
+        <div id="vibeBadge" class="badge">Vibe baseline: 0%</div>
+        <button id="restart" class="btn secondary">Restart</button>
+      </div>
+    </section>
+
+    <canvas id="game" width="720" height="200"></canvas>
+  </main>
+
+<script>
+(() => {
+  // ---------- Status helpers ----------
+  const micDot = document.getElementById('micDot');
+  const micStatus = document.getElementById('micStatus');
+  const bpDot = document.getElementById('bpDot');
+  const bpStatus = document.getElementById('bpStatus');
+  const devStatus = document.getElementById('devStatus');
+  const wsStatus = document.getElementById('wsStatus');
+
+  function setMicStatus(text, cls='') { micStatus.textContent = text; micDot.className = 'dot ' + cls; }
+  function setBpStatus(text, cls='') { bpStatus.textContent = text; bpDot.className = 'dot ' + cls; }
+  function setDevStatus(text) { devStatus.textContent = text; }
+  function setWsStatus(url) { wsStatus.textContent = url ? 'WS: ' + url : ''; }
+  setMicStatus('(not used)', '');
+
+  // ---------- Intiface / Buttplug ----------
+  let wsUrl = '';
+  let bpClient = null, device = null;
+  function getWsUrlFromInputs() {
+    const ip = (document.getElementById('wsIp').value || '').trim();
+    const port = (document.getElementById('wsPort').value || '').trim();
+    if (!ip || !port) return '';
+    // default to wss
+    return `wss://${ip}:${port}`;
+  }
+  function getVibe() {
+    return device || ((bpClient?.devices || []).find(d => typeof d.vibrate === 'function'));
+  }
+  async function vibrateTo(speed) {
+    const d = getVibe();
+    if (!d) return;
+    const s = Math.max(0, Math.min(1, speed));
+    try { await d.vibrate(s); } catch(e) { /* ignore */ }
+  }
+  async function connectIntiface() {
+    wsUrl = getWsUrlFromInputs();
+    setWsStatus(wsUrl);
+    if (!wsUrl) { setBpStatus('no WS url', 'err'); return; }
+    try {
+      setBpStatus('connecting…', 'warn');
+      const connector = new buttplug.ButtplugBrowserWebsocketClientConnector(wsUrl);
+      bpClient = new buttplug.ButtplugClient('Dino Vibe Client');
+      await bpClient.connect(connector);
+      setBpStatus('connected', 'ok');
+      document.getElementById('connect').disabled = true;
+      document.getElementById('disconnect').disabled = false;
+
+      bpClient.addListener('deviceadded', (dev) => {
+        if (!device && typeof dev.vibrate === 'function') {
+          device = dev;
+          setDevStatus('Device: ' + dev.name);
+        }
+      });
+      bpClient.addListener('deviceremoved', (dev) => {
+        if (device && dev.index === device.index) {
+          device = null;
+          setDevStatus('Device removed');
+        }
+      });
+
+      await bpClient.startScanning();
+      const until = performance.now() + 6000;
+      while (!device && performance.now() < until) {
+        const d = (bpClient.devices || []).find(x => typeof x.vibrate === 'function');
+        if (d) { device = d; setDevStatus('Device: ' + d.name); break; }
+        await new Promise(r => setTimeout(r, 120));
+      }
+      setTimeout(() => bpClient?.stopScanning().catch(()=>{}), 8000);
+    } catch (e) {
+      console.error(e);
+      setBpStatus('failed', 'err');
+    }
+  }
+  async function disconnectIntiface() {
+    try {
+      await vibrateTo(0);
+      if (bpClient) { try { await bpClient.disconnect(); } catch {} }
+    } finally {
+      bpClient = null; device = null; setDevStatus('');
+      setBpStatus('disconnected', '');
+      document.getElementById('connect').disabled = false;
+      document.getElementById('disconnect').disabled = true;
+      setWsStatus('');
+    }
+  }
+  document.getElementById('connect').addEventListener('click', connectIntiface);
+  document.getElementById('disconnect').addEventListener('click', disconnectIntiface);
+
+  // ---------- Optional BroadcastChannel for compatibility ----------
+  const bc = new BroadcastChannel('vibe');
+  function sendVibe(msg) {
+    try { bc.postMessage(msg); } catch(_) {}
+    try { window.parent && window.parent.postMessage(msg, '*'); } catch(_) {}
+    try { window.postMessage(msg, '*'); } catch(_) {}
+  }
+
+  // ---------- Game ----------
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const GROUND_Y = 160;
+  const GRAVITY = 0.6;
+  const JUMP_VY = -10.5;
+  const SPEED_START = 6.2;
+  const SPEED_INC = 0.0009; // slow acceleration
+  const CACTUS_GAP_MIN = 250;
+  const CACTUS_GAP_VAR = 220;
+
+  // State
+  let speed = SPEED_START;
+  let dino = { x: 40, y: GROUND_Y, vy: 0, w: 30, h: 34, duck:false, alive:true, anim:0 };
+  let cacti = [];
+  let frame = 0;
+  let score = 0;
+  let best = +localStorage.getItem('dino_best') || 0;
+  let milestone = 0;
+  let gameOver = false;
+
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const vibeBadge = document.getElementById('vibeBadge');
+  bestEl.textContent = 'Best: ' + best;
+
+  // Vibration baseline rises with score. Jump gives a 300ms boost (acceleration).
+  let baseVibe = 0;         // 0..1
+  let boostUntil = 0;       // performance.now() ts
+  let lastBaseApply = 0;    // throttling baseline sends
+  const BASE_APPLY_MS = 120;
+
+  function computeBaseVibe() {
+    // very gentle ramp: reaches ~0.6 around score ~6000
+    const s = Math.max(0, score);
+    return Math.min(0.6, s / 10000); // tune ramp here
+  }
+
+  function applyBaselineVibe(now) {
+    if (now - lastBaseApply < BASE_APPLY_MS) return;
+    lastBaseApply = now;
+    const target = (now < boostUntil) ? Math.min(1, baseVibe + 0.35) : baseVibe;
+    vibrateTo(target);
+    vibeBadge.textContent = 'Vibe baseline: ' + Math.round(baseVibe * 100) + '%';
+  }
+
+  function reset() {
+    speed = SPEED_START;
+    dino = { x: 40, y: GROUND_Y, vy: 0, w: 30, h: 34, duck:false, alive:true, anim:0 };
+    cacti = [];
+    frame = 0;
+    score = 0;
+    milestone = 0;
+    gameOver = false;
+    scoreEl.textContent = 'Score: 0';
+    // Make the very first obstacle appear further away to ease start:
+    spawnCactus(360); // increased from ~200 to 360 for playability
+    boostUntil = 0;
+    baseVibe = 0;
+    loop();
+  }
+
+  function spawnCactus(xStart=null) {
+    const w = 16 + Math.floor(Math.random()*16); // 16..31
+    const h = 28 + Math.floor(Math.random()*18); // 28..45
+    const gap = CACTUS_GAP_MIN + Math.random()*CACTUS_GAP_VAR;
+    const x = xStart != null ? xStart : (cacti.length ? (cacti[cacti.length-1].x + gap) : (W + 200));
+    cacti.push({ x, y: GROUND_Y+2, w, h });
+  }
+
+  function jump() {
+    if (!dino.alive) return;
+    if (dino.y >= GROUND_Y - 0.1) {
+      dino.vy = JUMP_VY;
+      // Short acceleration burst for ~300ms, then go back
+      boostUntil = performance.now() + 300;
+      // Optional messaging for external pages:
+      sendVibe({ type:'vibe', action:'pattern', name:'short accel' });
+    }
+  }
+  function duck(down) {
+    dino.duck = !!down;
+    dino.h = dino.duck ? 24 : 34;
+  }
+  function rectsOverlap(a, b) {
+    return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+  }
+
+  function update() {
+    frame++;
+    speed += SPEED_INC;
+
+    // Dino physics
+    dino.vy += GRAVITY;
+    dino.y += dino.vy;
+    if (dino.y > GROUND_Y) { dino.y = GROUND_Y; dino.vy = 0; }
+    dino.anim = (dino.anim + 0.25) % 2;
+
+    // Obstacles
+    if (cacti.length === 0) spawnCactus();
+    cacti.forEach(c => c.x -= speed);
+    if (cacti[0].x + cacti[0].w < 0) { cacti.shift(); spawnCactus(); }
+
+    // Collision
+    const dinoBox = { x:dino.x, y:dino.y - dino.h, w:dino.w, h:dino.h };
+    for (const c of cacti) {
+      const cactusBox = { x:c.x, y:c.y - c.h, w:c.w, h:c.h };
+      if (rectsOverlap(dinoBox, cactusBox)) { crash(); break; }
+    }
+
+    // Score & vibe baseline
+    score += Math.floor(speed);
+    scoreEl.textContent = 'Score: ' + score;
+    baseVibe = computeBaseVibe();
+    if (Math.floor(score / 100) > milestone) {
+      milestone = Math.floor(score / 100);
+      // small celebratory blip without overriding baseline for long
+      const now = performance.now();
+      boostUntil = Math.max(boostUntil, now + 160);
+    }
+  }
+
+  function crash() {
+    if (gameOver) return;
+    dino.alive = false;
+    gameOver = true;
+    if (score > best) {
+      best = score;
+      localStorage.setItem('dino_best', best);
+      bestEl.textContent = 'Best: ' + best;
+    }
+    // Crash feedback: brief strong pulse then off baseline resumes when restart
+    vibrateTo(1).then(() => setTimeout(() => vibrateTo(0.15), 220));
+  }
+
+  function drawGround() {
+    ctx.strokeStyle = '#334155';
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y+1);
+    ctx.lineTo(W, GROUND_Y+1);
+    ctx.stroke();
+  }
+  function drawDino() {
+    ctx.save();
+    ctx.translate(dino.x, dino.y);
+    ctx.fillStyle = dino.alive ? '#e5e7eb' : '#fca5a5';
+    ctx.fillRect(-6, -dino.h, dino.w, dino.h);
+    ctx.fillStyle = '#0b1220';
+    ctx.fillRect(dino.w-10, -dino.h+6, 4, 4);
+    ctx.restore();
+  }
+  function drawCactus(c) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(0, -c.h, c.w, c.h);
+    ctx.fillRect(-4, -c.h/2, 4, 12);
+    ctx.fillRect(c.w, -c.h/3, 4, 10);
+    ctx.restore();
+  }
+  function drawGameOver() {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#fff';
+    ctx.font = '24px system-ui, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Game Over', W/2, H/2 - 10);
+    ctx.font = '14px system-ui, Arial';
+    ctx.fillText('Press Space/↑ to restart', W/2, H/2 + 14);
+  }
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    drawGround();
+    cacti.forEach(drawCactus);
+    drawDino();
+    if (gameOver) drawGameOver();
+  }
+
+  let raf;
+  function loop() {
+    if (!gameOver) {
+      update();
+      render();
+      const now = performance.now();
+      applyBaselineVibe(now);
+      raf = requestAnimationFrame(loop);
+    } else {
+      render();
+      cancelAnimationFrame(raf);
+    }
+  }
+
+  // Controls
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      if (gameOver) { reset(); return; }
+      jump();
+      e.preventDefault();
+    } else if (e.code === 'ArrowDown') {
+      duck(true);
+    }
+  });
+  window.addEventListener('keyup', (e) => { if (e.code === 'ArrowDown') duck(false); });
+  document.getElementById('restart').addEventListener('click', reset);
+
+  // Init
+  setBpStatus('disconnected', '');
+  setMicStatus('(not used)', '');
+  reset();
+})();
+</script>
+</body>
+</html>

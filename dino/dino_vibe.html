@@ -1,0 +1,245 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dino Vibe Runner (self‑contained)</title>
+<style>
+  html, body { height:100%; margin:0; background:#f6f7f9; color:#111; font-family:system-ui, Arial, sans-serif; }
+  .wrap { display:flex; flex-direction:column; align-items:center; gap:10px; padding:20px; }
+  canvas { background:#fff; border:1px solid #ddd; box-shadow:0 6px 18px rgba(0,0,0,.06); image-rendering:pixelated; }
+  .hud { display:flex; gap:16px; align-items:center; }
+  .hud .badge { padding:4px 8px; background:#eee; border-radius:12px; font-size:12px; }
+  .btn { padding:8px 14px; border-radius:10px; border:1px solid #ccc; background:#fafafa; cursor:pointer; }
+  .btn:active { transform: translateY(1px); }
+  .status { font-size:12px; color:#666; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 style="margin:0;font-size:20px;">Dino Vibe Runner</h1>
+  <div class="hud">
+    <div class="badge">Jump: <kbd>Space</kbd> / <kbd>↑</kbd></div>
+    <div class="badge">Duck: <kbd>↓</kbd> (cosmetic)</div>
+    <div id="score" class="badge">Score: 0</div>
+    <div id="best" class="badge">Best: 0</div>
+    <button id="restart" class="btn">Restart</button>
+  </div>
+  <canvas id="game" width="720" height="200"></canvas>
+  <div class="status">Sends vibe messages via <code>BroadcastChannel('vibe')</code> and <code>postMessage</code>.</div>
+</div>
+
+<script>
+(() => {
+  // --- Messaging helpers to your vibrator control page ---
+  const bc = new BroadcastChannel('vibe');
+  function sendVibe(msg) {
+    try { bc.postMessage(msg); } catch(_) {}
+    try { window.parent && window.parent.postMessage(msg, '*'); } catch(_) {}
+    try { window.postMessage(msg, '*'); } catch(_) {}
+  }
+  const vibe = {
+    pulse: (ms=150, intensity=0.7) => sendVibe({type:'vibe', action:'pulse', ms, intensity}),
+    hit:   (kind='default')        => sendVibe({type:'vibe', action:'hit',   kind}),
+    pattern: (name='short accel')  => sendVibe({type:'vibe', action:'pattern', name}),
+  };
+
+  // --- Game constants ---
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const GROUND_Y = 160;
+  const GRAVITY = 0.6;
+  const JUMP_VY = -10.5;
+  const SPEED_START = 6.2;
+  const SPEED_INC = 0.0009; // slow acceleration
+  const CACTUS_GAP_MIN = 250;
+  const CACTUS_GAP_VAR = 220;
+
+  // --- State ---
+  let speed = SPEED_START;
+  let dino = { x: 40, y: GROUND_Y, vy: 0, w: 30, h: 34, duck:false, alive:true, anim:0 };
+  let cacti = [];
+  let frame = 0;
+  let score = 0;
+  let best = +localStorage.getItem('dino_best') || 0;
+  let milestone = 0;
+  let gameOver = false;
+
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  bestEl.textContent = 'Best: ' + best;
+
+  function reset() {
+    speed = SPEED_START;
+    dino = { x: 40, y: GROUND_Y, vy: 0, w: 30, h: 34, duck:false, alive:true, anim:0 };
+    cacti = [];
+    frame = 0;
+    score = 0;
+    milestone = 0;
+    gameOver = false;
+    scoreEl.textContent = 'Score: 0';
+    spawnCactus(200); // starting cactus a bit ahead
+    loop();
+  }
+
+  function spawnCactus(xStart=null) {
+    const w = 16 + Math.floor(Math.random()*16); // 16..31
+    const h = 28 + Math.floor(Math.random()*18); // 28..45
+    const gap = CACTUS_GAP_MIN + Math.random()*CACTUS_GAP_VAR;
+    const x = xStart != null ? xStart : (cacti.length ? (cacti[cacti.length-1].x + gap) : (W + 200));
+    cacti.push({ x, y: GROUND_Y+2, w, h });
+  }
+
+  function jump() {
+    if (!dino.alive) return;
+    if (dino.y >= GROUND_Y - 0.1) {
+      dino.vy = JUMP_VY;
+      vibe.pulse(150, 0.7); // jump feedback
+    }
+  }
+
+  function duck(down) {
+    dino.duck = !!down;
+    dino.h = dino.duck ? 24 : 34;
+  }
+
+  function rectsOverlap(a, b) {
+    return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+  }
+
+  function update() {
+    frame++;
+    speed += SPEED_INC;
+
+    // Dino physics
+    dino.vy += GRAVITY;
+    dino.y += dino.vy;
+    if (dino.y > GROUND_Y) { dino.y = GROUND_Y; dino.vy = 0; }
+    dino.anim = (dino.anim + 0.25) % 2;
+
+    // Cacti movement
+    if (cacti.length === 0) spawnCactus();
+    cacti.forEach(c => c.x -= speed);
+    // Remove off-screen & spawn new
+    if (cacti[0].x + cacti[0].w < 0) {
+      cacti.shift();
+      spawnCactus();
+    }
+
+    // Collision
+    const dinoBox = { x:dino.x, y:dino.y - dino.h, w:dino.w, h:dino.h };
+    for (const c of cacti) {
+      const cactusBox = { x:c.x, y:c.y - c.h, w:c.w, h:c.h };
+      if (rectsOverlap(dinoBox, cactusBox)) {
+        crash();
+        break;
+      }
+    }
+
+    // Score
+    score += Math.floor(speed);
+    scoreEl.textContent = 'Score: ' + score;
+    if (Math.floor(score / 100) > milestone) {
+      milestone = Math.floor(score / 100);
+      vibe.hit('combo'); // milestone combo
+    }
+  }
+
+  function crash() {
+    if (gameOver) return;
+    dino.alive = false;
+    gameOver = true;
+    if (score > best) {
+      best = score;
+      localStorage.setItem('dino_best', best);
+      bestEl.textContent = 'Best: ' + best;
+    }
+    // Damage feedback
+    vibe.hit('damage');
+  }
+
+  function drawGround() {
+    ctx.strokeStyle = '#ddd';
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y+1);
+    ctx.lineTo(W, GROUND_Y+1);
+    ctx.stroke();
+  }
+
+  function drawDino() {
+    ctx.save();
+    ctx.translate(dino.x, dino.y);
+    // body
+    ctx.fillStyle = dino.alive ? '#222' : '#a22';
+    ctx.fillRect(-6, -dino.h, dino.w, dino.h);
+    // eye
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(dino.w-10, -dino.h+6, 4, 4);
+    ctx.restore();
+  }
+
+  function drawCactus(c) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.fillStyle = '#2f7d32';
+    ctx.fillRect(0, -c.h, c.w, c.h);
+    // simple arms
+    ctx.fillRect(-4, -c.h/2, 4, 12);
+    ctx.fillRect(c.w, -c.h/3, 4, 10);
+    ctx.restore();
+  }
+
+  function drawGameOver() {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#fff';
+    ctx.font = '24px system-ui, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Game Over', W/2, H/2 - 10);
+    ctx.font = '14px system-ui, Arial';
+    ctx.fillText('Press Space/↑ to restart', W/2, H/2 + 14);
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    drawGround();
+    cacti.forEach(drawCactus);
+    drawDino();
+    if (gameOver) drawGameOver();
+  }
+
+  let raf;
+  function loop() {
+    if (!gameOver) {
+      update();
+      render();
+      raf = requestAnimationFrame(loop);
+    } else {
+      render();
+      cancelAnimationFrame(raf);
+    }
+  }
+
+  // --- Controls ---
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      if (gameOver) { reset(); return; }
+      jump();
+      e.preventDefault();
+    } else if (e.code === 'ArrowDown') {
+      duck(true);
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowDown') duck(false);
+  });
+  document.getElementById('restart').addEventListener('click', reset);
+
+  // Start
+  reset();
+})();
+</script>
+</body>
+</html>
