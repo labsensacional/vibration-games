@@ -340,7 +340,7 @@
     ctx.textAlign = 'center';
     ctx.fillText('Game Over', W/2, H/2 - 10);
     ctx.font = '14px system-ui, Arial';
-    ctx.fillText('Press Space/↑ to restart', W/2, H/2 + 14);
+    ctx.fillText('Press Enter/↑ to restart', W/2, H/2 + 14);
   }
   function render() {
     ctx.clearRect(0, 0, W, H);
@@ -366,15 +366,37 @@
 
   // Controls
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp') {
-      if (gameOver) { reset(); return; }
+    const code = e.code;
+
+    // If game over: restart with Enter / NumpadEnter (also allow ↑ / Numpad8)
+    if (gameOver) {
+      if (code === 'Enter' || code === 'NumpadEnter' || code === 'ArrowUp' || code === 'Numpad8') {
+        reset();
+        e.preventDefault();
+      }
+      return;
+    }
+
+    // In-game jump: Space, ArrowUp, or Numpad8
+    if (code === 'Space' || code === 'ArrowUp' || code === 'Numpad8') {
       jump();
       e.preventDefault();
-    } else if (e.code === 'ArrowDown') {
+    }
+    // In-game duck: ArrowDown or Numpad2
+    else if (code === 'ArrowDown' || code === 'Numpad2') {
       duck(true);
+      e.preventDefault();
     }
   });
-  window.addEventListener('keyup', (e) => { if (e.code === 'ArrowDown') duck(false); });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowDown' || e.code === 'Numpad2') {
+      duck(false);
+      e.preventDefault();
+    }
+  });
+
+
   document.getElementById('restart').addEventListener('click', reset);
 
   // Init
