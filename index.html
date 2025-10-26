@@ -92,7 +92,8 @@
 
   // ---------- Intiface / Buttplug ----------
   let wsUrl = '';
-  let bpClient = null, device = null;
+  let bpClient = null;
+
   function getWsUrlFromInputs() {
     const ip = (document.getElementById('wsIp').value || '').trim();
     const port = (document.getElementById('wsPort').value || '').trim();
@@ -100,15 +101,33 @@
     // default to wss
     return `wss://${ip}:${port}`;
   }
-  function getVibe() {
-    return device || ((bpClient?.devices || []).find(d => typeof d.vibrate === 'function'));
+
+  // Return all currently connected, vibrate-capable devices
+  function getVibeDevices() {
+    const list = (bpClient?.devices || []).filter(d => typeof d.vibrate === 'function');
+    return Array.isArray(list) ? list : [];
   }
+
+  // Vibrate ALL devices to a given scalar speed (0..1)
   async function vibrateTo(speed) {
-    const d = getVibe();
-    if (!d) return;
     const s = Math.max(0, Math.min(1, speed));
-    try { await d.vibrate(s); } catch(e) { /* ignore */ }
+    const devices = getVibeDevices();
+    if (!devices.length) return;
+    try {
+      await Promise.all(devices.map(d => d.vibrate(s).catch(()=>{})));
+    } catch (_) { /* ignore */ }
   }
+
+  function updateDeviceStatus() {
+    const devices = getVibeDevices();
+    if (!devices.length) {
+      setDevStatus('No vibrators detected');
+      return;
+    }
+    const names = devices.map(d => d.name).join(', ');
+    setDevStatus(`${devices.length} device(s): ${names}`);
+  }
+
   async function connectIntiface() {
     wsUrl = getWsUrlFromInputs();
     setWsStatus(wsUrl);
@@ -122,44 +141,36 @@
       document.getElementById('connect').disabled = true;
       document.getElementById('disconnect').disabled = false;
 
-      bpClient.addListener('deviceadded', (dev) => {
-        if (!device && typeof dev.vibrate === 'function') {
-          device = dev;
-          setDevStatus('Device: ' + dev.name);
-        }
-      });
-      bpClient.addListener('deviceremoved', (dev) => {
-        if (device && dev.index === device.index) {
-          device = null;
-          setDevStatus('Device removed');
-        }
-      });
+      // Keep device list/status in sync
+      bpClient.addListener('deviceadded', () => updateDeviceStatus());
+      bpClient.addListener('deviceremoved', () => updateDeviceStatus());
 
       await bpClient.startScanning();
-      const until = performance.now() + 6000;
-      while (!device && performance.now() < until) {
-        const d = (bpClient.devices || []).find(x => typeof x.vibrate === 'function');
-        if (d) { device = d; setDevStatus('Device: ' + d.name); break; }
-        await new Promise(r => setTimeout(r, 120));
-      }
-      setTimeout(() => bpClient?.stopScanning().catch(()=>{}), 8000);
+      // Give scanning a moment to find devices; then stop to save power
+      setTimeout(() => {
+        updateDeviceStatus();
+        bpClient?.stopScanning().catch(()=>{});
+      }, 3000);
     } catch (e) {
       console.error(e);
       setBpStatus('failed', 'err');
     }
   }
+
   async function disconnectIntiface() {
     try {
       await vibrateTo(0);
       if (bpClient) { try { await bpClient.disconnect(); } catch {} }
     } finally {
-      bpClient = null; device = null; setDevStatus('');
+      bpClient = null;
+      setDevStatus('');
       setBpStatus('disconnected', '');
       document.getElementById('connect').disabled = false;
       document.getElementById('disconnect').disabled = true;
       setWsStatus('');
     }
   }
+
   document.getElementById('connect').addEventListener('click', connectIntiface);
   document.getElementById('disconnect').addEventListener('click', disconnectIntiface);
 
@@ -205,7 +216,7 @@
   }
 
   /**
-   * Sends a short micro vibration whose intensity increases with survival time.
+   * Sends a short micro vibration to ALL connected devices.
    * - Starts ~0.2, ramps toward ~0.9 by ~90s of survival (clamped at 1.0).
    * - Duration ~120 ms, then back to 0 (off).
    */
@@ -249,7 +260,7 @@
     if (!dino.alive) return;
     if (dino.y >= GROUND_Y - 0.1) {
       dino.vy = JUMP_VY;
-      microVibe(); // short pulse that scales with survival time
+      microVibe(); // short pulse that scales with survival time, sent to ALL devices
       sendVibe({ type:'vibe', action:'pattern', name:'jump micro' });
     }
   }
@@ -297,7 +308,7 @@
       localStorage.setItem('dino_best', best);
       bestEl.textContent = 'Best: ' + best;
     }
-    vibrateTo(0); // ensure off on crash
+    vibrateTo(0); // ensure off on crash (ALL devices)
   }
 
   function drawGround() {
@@ -392,7 +403,6 @@
   // Init
   setBpStatus('disconnected', '');
   setMicStatus('(not used)', '');
-  // Set initial badge text
   document.getElementById('vibeBadge').textContent = 'Vibe: pulse on jump';
   reset();
 })();
