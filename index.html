@@ -66,7 +66,7 @@
       <div class="hud" style="margin-top:10px;">
         <div id="score" class="badge">Score: 0</div>
         <div id="best" class="badge">Best: 0</div>
-        <div id="vibeBadge" class="badge">Vibe baseline: 0%</div>
+        <div id="vibeBadge" class="badge">Vibe: pulse on jump</div>
         <button id="restart" class="btn secondary">Restart</button>
       </div>
     </section>
@@ -190,7 +190,6 @@
   let frame = 0;
   let score = 0;
   let best = +localStorage.getItem('dino_best') || 0;
-  let milestone = 0;
   let gameOver = false;
 
   const scoreEl = document.getElementById('score');
@@ -198,24 +197,25 @@
   const vibeBadge = document.getElementById('vibeBadge');
   bestEl.textContent = 'Best: ' + best;
 
-  // Vibration baseline rises with score. Jump gives a 300ms boost (acceleration).
-  let baseVibe = 0;         // 0..1
-  let boostUntil = 0;       // performance.now() ts
-  let lastBaseApply = 0;    // throttling baseline sends
-  const BASE_APPLY_MS = 120;
+  // --- Pulse-only vibe: always off, tiny burst on jump that ramps with time alive ---
+  let startTimeMs = performance.now();
 
-  function computeBaseVibe() {
-    // very gentle ramp: reaches ~0.6 around score ~6000
-    const s = Math.max(0, score);
-    return Math.min(0.6, s / 10000); // tune ramp here
+  function timeAliveSec() {
+    return (performance.now() - startTimeMs) / 1000;
   }
 
-  function applyBaselineVibe(now) {
-    if (now - lastBaseApply < BASE_APPLY_MS) return;
-    lastBaseApply = now;
-    const target = (now < boostUntil) ? Math.min(1, baseVibe + 0.35) : baseVibe;
-    vibrateTo(target);
-    vibeBadge.textContent = 'Vibe baseline: ' + Math.round(baseVibe * 100) + '%';
+  /**
+   * Sends a short micro vibration whose intensity increases with survival time.
+   * - Starts ~0.2, ramps toward ~0.9 by ~90s of survival (clamped at 1.0).
+   * - Duration ~120 ms, then back to 0 (off).
+   */
+  async function microVibe() {
+    const t = timeAliveSec();
+    const intensity = Math.min(1, 0.2 + (t / 90) * 0.7); // tweak ramp as desired
+    try {
+      await vibrateTo(intensity);
+      setTimeout(() => vibrateTo(0), 120); // always return to off
+    } catch (_) {}
   }
 
   function reset() {
@@ -224,13 +224,16 @@
     cacti = [];
     frame = 0;
     score = 0;
-    milestone = 0;
     gameOver = false;
     scoreEl.textContent = 'Score: 0';
     // Make the very first obstacle appear further away to ease start:
     spawnCactus(360); // increased from ~200 to 360 for playability
-    boostUntil = 0;
-    baseVibe = 0;
+
+    // Pulse-only mode housekeeping
+    startTimeMs = performance.now();
+    vibrateTo(0); // ensure off
+    vibeBadge.textContent = 'Vibe: pulse on jump';
+
     loop();
   }
 
@@ -246,10 +249,8 @@
     if (!dino.alive) return;
     if (dino.y >= GROUND_Y - 0.1) {
       dino.vy = JUMP_VY;
-      // Short acceleration burst for ~300ms, then go back
-      boostUntil = performance.now() + 300;
-      // Optional messaging for external pages:
-      sendVibe({ type:'vibe', action:'pattern', name:'short accel' });
+      microVibe(); // short pulse that scales with survival time
+      sendVibe({ type:'vibe', action:'pattern', name:'jump micro' });
     }
   }
   function duck(down) {
@@ -282,16 +283,9 @@
       if (rectsOverlap(dinoBox, cactusBox)) { crash(); break; }
     }
 
-    // Score & vibe baseline
+    // Score
     score += Math.floor(speed);
     scoreEl.textContent = 'Score: ' + score;
-    baseVibe = computeBaseVibe();
-    if (Math.floor(score / 100) > milestone) {
-      milestone = Math.floor(score / 100);
-      // small celebratory blip without overriding baseline for long
-      const now = performance.now();
-      boostUntil = Math.max(boostUntil, now + 160);
-    }
   }
 
   function crash() {
@@ -303,8 +297,7 @@
       localStorage.setItem('dino_best', best);
       bestEl.textContent = 'Best: ' + best;
     }
-    // Crash feedback: brief strong pulse then off baseline resumes when restart
-    vibrateTo(1).then(() => setTimeout(() => vibrateTo(0.15), 220));
+    vibrateTo(0); // ensure off on crash
   }
 
   function drawGround() {
@@ -355,8 +348,6 @@
     if (!gameOver) {
       update();
       render();
-      const now = performance.now();
-      applyBaselineVibe(now);
       raf = requestAnimationFrame(loop);
     } else {
       render();
@@ -396,12 +387,13 @@
     }
   });
 
-
   document.getElementById('restart').addEventListener('click', reset);
 
   // Init
   setBpStatus('disconnected', '');
   setMicStatus('(not used)', '');
+  // Set initial badge text
+  document.getElementById('vibeBadge').textContent = 'Vibe: pulse on jump';
   reset();
 })();
 </script>
